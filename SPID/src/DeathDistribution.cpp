@@ -1,7 +1,9 @@
 #include "DeathDistribution.h"
 #include "Distribute.h"
+#include "Hooking.h"
 #include "LinkedDistribution.h"
 #include "LookupNPC.h"
+#include "OutfitManager.h"
 #include "PCLevelMultManager.h"
 #include "Parser.h"
 
@@ -14,17 +16,25 @@ namespace DeathDistribution
 		struct DeathKeyComponentParser
 		{
 			template <Distribution::INI::concepts::typed_data Data>
-			bool operator()(const std::string& key, Data& data) const
+			bool operator()(const std::string& originalKey, Data& data) const
 			{
+				std::string key = originalKey;
+
+				if (key.starts_with("Final"sv)) {
+					data.recordTraits = RECORD::TRAITS::Final;
+					key.erase(0, 5);
+				}
+
 				if (!key.starts_with("Death"sv)) {
 					return false;
 				}
 
-				std::string rawType = key.substr(5);
-				auto        type = RECORD::GetType(rawType);
+				key.erase(0, 5);
+
+				auto type = RECORD::GetType(key);
 
 				if (type == RECORD::kTotal) {
-					throw Distribution::INI::Exception::UnsupportedFormTypeException(rawType);
+					throw Distribution::INI::Exception::UnsupportedFormTypeException(key);
 				}
 				data.type = type;
 
@@ -54,7 +64,11 @@ namespace DeathDistribution
 					optData) {
 					auto& data = *optData;
 					data.path = path;
-
+					if (data.recordTraits & RECORD::TRAITS::Final && data.type != RECORD::TYPE::kOutfit) {
+						data.recordTraits &= ~RECORD::TRAITS::Final;
+						logger::info("\t\t[{} = {}]", key, value);
+						logger::info("\t\t\tFinal modifier can only be applied to Outfits.");
+					}
 					deathConfigs[data.type].emplace_back(data);
 				} else {
 					return false;
@@ -87,11 +101,11 @@ namespace DeathDistribution
 		auto& rawSpells = INI::deathConfigs[RECORD::kSpell];
 
 		for (auto& rawSpell : rawSpells) {
-			LookupGenericForm<RE::TESForm>(dataHandler, rawSpell, [&](bool isValid, auto form, const auto& idxOrCount, const auto& filters, const auto& path) {
+			LookupGenericForm<RE::TESForm>(dataHandler, rawSpell, [&](bool isValid, auto form, const bool& isFinal, const auto& idxOrCount, const auto& filters, const auto& path) {
 				if (const auto spell = form->As<RE::SpellItem>(); spell) {
-					spells.EmplaceForm(isValid, spell, idxOrCount, filters, path);
+					spells.EmplaceForm(isValid, spell, isFinal, idxOrCount, filters, path);
 				} else if (const auto levSpell = form->As<RE::TESLevSpell>(); levSpell) {
-					levSpells.EmplaceForm(isValid, levSpell, idxOrCount, filters, path);
+					levSpells.EmplaceForm(isValid, levSpell, isFinal, idxOrCount, filters, path);
 				}
 			});
 		}
@@ -100,23 +114,23 @@ namespace DeathDistribution
 
 		for (auto& rawForm : genericForms) {
 			// Add to appropriate list. (Note that type inferring doesn't recognize SleepOutfit, Skin)
-			LookupGenericForm<RE::TESForm>(dataHandler, rawForm, [&](bool isValid, auto form, const auto& idxOrCount, const auto& filters, const auto& path) {
+			LookupGenericForm<RE::TESForm>(dataHandler, rawForm, [&](bool isValid, auto form, const bool& isFinal, const auto& idxOrCount, const auto& filters, const auto& path) {
 				if (const auto keyword = form->As<RE::BGSKeyword>(); keyword) {
-					keywords.EmplaceForm(isValid, keyword, idxOrCount, filters, path);
+					keywords.EmplaceForm(isValid, keyword, isFinal, idxOrCount, filters, path);
 				} else if (const auto spell = form->As<RE::SpellItem>(); spell) {
-					spells.EmplaceForm(isValid, spell, idxOrCount, filters, path);
+					spells.EmplaceForm(isValid, spell, isFinal, idxOrCount, filters, path);
 				} else if (const auto levSpell = form->As<RE::TESLevSpell>(); levSpell) {
-					levSpells.EmplaceForm(isValid, levSpell, idxOrCount, filters, path);
+					levSpells.EmplaceForm(isValid, levSpell, isFinal, idxOrCount, filters, path);
 				} else if (const auto perk = form->As<RE::BGSPerk>(); perk) {
-					perks.EmplaceForm(isValid, perk, idxOrCount, filters, path);
+					perks.EmplaceForm(isValid, perk, isFinal, idxOrCount, filters, path);
 				} else if (const auto shout = form->As<RE::TESShout>(); shout) {
-					shouts.EmplaceForm(isValid, shout, idxOrCount, filters, path);
+					shouts.EmplaceForm(isValid, shout, isFinal, idxOrCount, filters, path);
 				} else if (const auto item = form->As<RE::TESBoundObject>(); item) {
-					items.EmplaceForm(isValid, item, idxOrCount, filters, path);
+					items.EmplaceForm(isValid, item, isFinal, idxOrCount, filters, path);
 				} else if (const auto outfit = form->As<RE::BGSOutfit>(); outfit) {
-					outfits.EmplaceForm(isValid, outfit, idxOrCount, filters, path);
+					outfits.EmplaceForm(isValid, outfit, isFinal, idxOrCount, filters, path);
 				} else if (const auto faction = form->As<RE::TESFaction>(); faction) {
-					factions.EmplaceForm(isValid, faction, idxOrCount, filters, path);
+					factions.EmplaceForm(isValid, faction, isFinal, idxOrCount, filters, path);
 				} else {
 					auto type = form->GetFormType();
 					if (type == RE::FormType::Package || type == RE::FormType::FormList) {
@@ -131,7 +145,7 @@ namespace DeathDistribution
 						} else {
 							packageIndex = std::get<Index>(idxOrCount);
 						}
-						packages.EmplaceForm(isValid, form, packageIndex, filters, path);
+						packages.EmplaceForm(isValid, form, isFinal, packageIndex, filters, path);
 					} else {
 						logger::warn("\t[{}] Unsupported Form type: {}", path, type);
 					}
@@ -163,7 +177,7 @@ namespace DeathDistribution
 
 		using namespace Forms;
 
-		logger::info("{:*^50}", "ON DEATH");
+		LOG_HEADER("ON DEATH");
 
 		ForEachDistributable([]<typename Form>(Distributables<Form>& a_distributable) {
 			const auto& recordName = RECORD::GetTypeName(a_distributable.GetType());
@@ -181,55 +195,98 @@ namespace DeathDistribution
 
 #pragma region Distribution
 
-	void Manager::Register()
+	struct ShouldBackgroundClone
 	{
-		if (INI::deathConfigs.empty()) {
-			return;
+		using Target = RE::Character;
+		static inline constexpr std::size_t index{ 0x6D };
+
+		static bool thunk(RE::Character* actor)
+		{
+#ifndef NDEBUG
+			//logger::info("Distribute: ShouldBackgroundClone({})", *(actor->As<RE::Actor>()));
+#endif
+			if (const auto npc = actor->GetActorBase()) {
+				auto npcData = NPCData(actor, npc);
+				if (npcData.IsDead()) {
+					Manager::GetSingleton()->Distribute(npcData);
+				}
+			}
+			return func(actor);
 		}
 
-		if (const auto scripts = RE::ScriptEventSourceHolder::GetSingleton()) {
-			scripts->AddEventSink<RE::TESDeathEvent>(GetSingleton());
-			logger::info("Registered for {}", typeid(RE::TESDeathEvent).name());
+		static inline void post_hook()
+		{
+			logger::info("\t\t🪝Installed ShouldBackgroundClone hook.");
 		}
+
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	void Manager::HandleMessage(SKSE::MessagingInterface::Message* message)
+	{
+		switch (message->type) {
+		case SKSE::MessagingInterface::kPostLoad:
+			if (INI::deathConfigs.empty()) {
+				return;
+			}
+
+			logger::info("💀Death Distribution");
+			if (const auto scripts = RE::ScriptEventSourceHolder::GetSingleton()) {
+				scripts->PrependEventSink<RE::TESDeathEvent>(this);
+				logger::info("\t\t📝Registered for {}.", typeid(RE::TESDeathEvent).name());
+			}
+			stl::install_hook<ShouldBackgroundClone>();
+
+			break;
+		default:
+			break;
+		}
+	}
+
+	void Manager::Distribute(NPCData& data)
+	{
+		assert(data.IsDead() || data.IsDying());
+
+		const auto input = PCLevelMult::Input{ data.GetActor(), data.GetNPC(), false };
+
+		DistributedForms distributedForms{};
+
+		Forms::DistributionSet entries{
+			spells.GetForms(),
+			perks.GetForms(),
+			items.GetForms(),
+			shouts.GetForms(),
+			levSpells.GetForms(),
+			packages.GetForms(),
+			outfits.GetForms(),
+			keywords.GetForms(),
+			factions.GetForms(),
+			sleepOutfits.GetForms(),
+			skins.GetForms()
+		};
+
+		Distribute::Distribute(data, input, entries, &distributedForms, Outfits::SetDeathOutfit);
+
+		if (!distributedForms.empty()) {
+			LinkedDistribution::Manager::GetSingleton()->ForEachLinkedDistributionSet(LinkedDistribution::kDeath, distributedForms, [&](Forms::DistributionSet& set) {
+				Distribute::Distribute(data, input, set, &distributedForms, Outfits::SetDeathOutfit);
+			});
+		}
+
+		Distribute::LogDistribution(distributedForms, data);
 	}
 
 	RE::BSEventNotifyControl Manager::ProcessEvent(const RE::TESDeathEvent* a_event, RE::BSTEventSource<RE::TESDeathEvent>*)
 	{
-		constexpr auto is_NPC = [](auto&& a_ref) {
-			return a_ref && !a_ref->IsPlayerRef();
-		};
+		if (!a_event || a_event->dead) {
+			return RE::BSEventNotifyControl::kContinue;
+		}
 
-		if (a_event && a_event->dead && is_NPC(a_event->actorDying)) {
-			const auto actor = a_event->actorDying->As<RE::Actor>();
-			const auto npc = actor ? actor->GetActorBase() : nullptr;
-			if (actor && npc) {
-				auto       npcData = NPCData(actor, npc);
-				const auto input = PCLevelMult::Input{ actor, npc, false };
-
-				DistributedForms distributedForms{};
-
-				Forms::DistributionSet entries{
-					spells.GetForms(),
-					perks.GetForms(),
-					items.GetForms(),
-					shouts.GetForms(),
-					levSpells.GetForms(),
-					packages.GetForms(),
-					outfits.GetForms(),
-					keywords.GetForms(),
-					factions.GetForms(),
-					sleepOutfits.GetForms(),
-					skins.GetForms()
-				};
-
-				Distribute::Distribute(npcData, input, entries, false, &distributedForms);
-				// TODO: We can now log per-NPC distributed forms.
-
-				if (!distributedForms.empty()) {
-					LinkedDistribution::Manager::GetSingleton()->ForEachLinkedDistributionSet(LinkedDistribution::kDeath, distributedForms, [&](Forms::DistributionSet& set) {
-						Distribute::Distribute(npcData, input, set, true, nullptr);  // TODO: Accumulate forms here? to log what was distributed.
-					});
-				}
+		if (const auto actor = a_event->actorDying->As<RE::Actor>(); actor && !actor->IsPlayerRef()) {
+			if (const auto npc = actor->GetActorBase(); npc) {
+				logger::info("Dying {}", *actor);
+				auto npcData = NPCData(actor, npc, true);
+				Distribute(npcData);
 			}
 		}
 

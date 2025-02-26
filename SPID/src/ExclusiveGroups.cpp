@@ -9,13 +9,13 @@ namespace ExclusiveGroups
 	{
 		template <typename Data>
 		concept named_data = requires(Data data) {
-								 {
-									 data.name
-									 } -> std::same_as<std::string&>;
-								 {
-									 data.name = std::declval<std::string>()
-								 };
-							 };
+			{
+				data.name
+			} -> std::same_as<std::string&>;
+			{
+				data.name = std::declval<std::string>()
+			};
+		};
 	}
 
 	using namespace concepts;
@@ -104,7 +104,7 @@ namespace ExclusiveGroups
 			return;
 		}
 
-		logger::info("{:*^50}", "EXCLUSIVE GROUPS");
+		LOG_HEADER("EXCLUSIVE GROUPS");
 
 		for (const auto& [group, forms] : groups) {
 			logger::info("Adding '{}' exclusive group", group);

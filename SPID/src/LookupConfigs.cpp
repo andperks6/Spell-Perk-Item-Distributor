@@ -70,6 +70,12 @@ namespace Distribution
 
 					data.path = path;
 
+					if (data.recordTraits & RECORD::TRAITS::Final && data.type != RECORD::TYPE::kOutfit) {
+						data.recordTraits &= ~RECORD::TRAITS::Final;
+						logger::info("\t\t[{} = {}]", key, value);
+						logger::info("\t\t\tFinal modifier can only be applied to Outfits.");
+					}
+
 					configs[data.type].emplace_back(data);
 				}
 			} catch (const std::exception& e) {
@@ -79,7 +85,7 @@ namespace Distribution
 
 		std::pair<bool, bool> GetConfigs()
 		{
-			logger::info("{:*^50}", "INI");
+			LOG_HEADER("INI");
 
 			std::vector<std::string> files = distribution::get_configs(R"(Data\)", "_DISTR"sv);
 
