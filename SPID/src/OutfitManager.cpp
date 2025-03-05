@@ -487,7 +487,7 @@ namespace Outfits
 	struct SetOutfitActor
 	{
 		static inline constexpr REL::ID     relocation = RELOCATION_ID(53960, 54784);
-		static inline constexpr std::size_t offset = OFFSET(0x3E60, 0x47D5);
+		static inline constexpr std::size_t offset = OFFSET_3(0x3E60, 0x47D5, 0x3c83);
 
 		// This re-creates original papyrus::Actor::SetOutfit function.
 		static void thunk(RE::BSScript::Internal::VirtualMachine* vm, RE::VMStackID stackID, RE::Actor* actor, RE::BGSOutfit* outfit, bool isSleepOutfit)
@@ -528,8 +528,8 @@ namespace Outfits
 
 	struct EquipObject
 	{
-		static inline constexpr REL::ID     relocation = RELOCATION_ID(0, 38894);
-		static inline constexpr std::size_t offset = OFFSET(0, 0x170);
+		static inline constexpr REL::ID     relocation = RELOCATION_ID(37938, 38894);
+		static inline constexpr std::size_t offset = OFFSET(0xe5, 0x170);
 
 		static void thunk(RE::ActorEquipManager* manager, RE::Actor* actor, RE::TESBoundObject* object, RE::ExtraDataList* list)
 		{
@@ -549,8 +549,8 @@ namespace Outfits
 
 	struct UnequipObject
 	{
-		static inline constexpr REL::ID     relocation = RELOCATION_ID(0, 38901);
-		static inline constexpr std::size_t offset = OFFSET(0, 0x1B9);
+		static inline constexpr REL::ID     relocation = RELOCATION_ID(37945, 38901);
+		static inline constexpr std::size_t offset = OFFSET(0x138, 0x1B9);
 
 		static void thunk(RE::ActorEquipManager* manager, RE::Actor* actor, RE::TESBoundObject* object, RE::ExtraDataList* list)
 		{
